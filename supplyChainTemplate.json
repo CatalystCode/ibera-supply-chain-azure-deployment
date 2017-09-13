@@ -28,15 +28,15 @@
 		  "type": "string",
 		  "defaultValue": "master"
 		},
-		"storageAccounts_service_name":{
+		"servicesStorageAccountName":{
 		  "type": "string",
 		  "defaultValue": "svcstorage"
 		},
-		"sites_services_api_name": {
+		"servicesName": {
 		  "type": "string",
 		  "defaultValue": "servicesapi"
 		},
-		"sites_oi_name": {
+		"oiName": {
 		  "type": "string",
 		  "defaultValue": "oiapi"
 		}
@@ -46,11 +46,11 @@
 		"subscriptionid": "[subscription().subscriptionId]",
 		"location": "[resourceGroup().location]",
 		"resourceGroup": "[resourceGroup().name]",
-		"storageAccounts_name_service": "[toLower(concat(parameters('deploymentPreFix'),parameters('storageAccounts_service_name')))]",
+		"storageAccounts_name_service": "[toLower(concat(parameters('deploymentPreFix'),parameters('servicesStorageAccountName')))]",
 		"hostingEnvironments_name_privchain": "[concat(parameters('deploymentPreFix'),'privchain-appsrv')]", 
 		"serverfarms_name_privchain": "[concat(parameters('deploymentPreFix'),'srv_farm_privchain')]",
-		"sites_oi_api": "[concat(parameters('deploymentPreFix'),parameters('sites_oi_name'))]",
-		"sites_services_api": "[concat(parameters('deploymentPreFix'),parameters('sites_services_api_name'))]", 
+		"sites_oi_api": "[concat(parameters('deploymentPreFix'),parameters('oiName'))]",
+		"sites_services_api": "[concat(parameters('deploymentPreFix'),parameters('servicesName'))]", 
 		"subnets_name_appsrvsubn": "[concat(parameters('deploymentPreFix'),'appsrvsubnet')]", 
 		"multiRolePools_default_name": "[concat(variables('hostingEnvironments_name_privchain'), '/default')]", 
 		"config_web_name_oi": "[concat(variables('sites_oi_api'), '/web')]",
@@ -65,12 +65,12 @@
             "kind": "ASEV2",
             "name": "[variables('hostingEnvironments_name_privchain')]",
             "apiVersion": "2016-09-01",
-			"location": "West Europe",
+			"location": "[parameters('hostingEnvLocationName')]",
             "tags": {},
             "scale": null,
             "properties": {
                 "name": "[variables('hostingEnvironments_name_privchain')]",
-                "location": "West Europe",
+                "location": "[parameters('hostingEnvLocationName')]",
                 "vnetName": "[parameters('ethVnetName')]",
                 "vnetResourceGroupName": "[variables('resourceGroup')]",
                 "vnetSubnetName": "[variables('subnets_name_appsrvsubn')]",
