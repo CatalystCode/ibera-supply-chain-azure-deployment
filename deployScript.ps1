@@ -1,58 +1,19 @@
-<#
- .SYNOPSIS
-    Deploys a template to Azure
 
- .DESCRIPTION
-    Deploys an Azure Resource Manager template
+$confFileName = "deploy.conf";
+$etheriumConsertiumTemplateFilePath = "etheriumConsertiumTemplate.json";
+$etheriumConsertiumParametersFilePath = "etheriumConsertiumParameters.json";
+$supplyChainTemplateFilePath = "supplyChainTemplate.json";
+$supplyChainParametersFilePath = "supplyChainParameters.json";
+$documentServicesEndPoint = 'https://ibera-document-service.azurewebsites.net/api/Attachment';
 
- .PARAMETER subscriptionId
-    The subscription id where the template will be deployed.
+#Read the configuration file
+Get-Content $confFileName | foreach-object -begin {$conf=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $conf.Add($k[0], $k[1]) } }
 
- .PARAMETER resourceGroupName
-    The resource group where the template will be deployed. Can be the name of an existing or a new resource group.
-
- .PARAMETER resourceGroupLocation
-    Optional, a resource group location. If specified, will try to create a new resource group in this location. If not specified, assumes resource group is existing.
-
- .PARAMETER deploymentName
-    The deployment name.
-
- .PARAMETER etheriumConsertiumTemplateFilePath
-    Path to the template Etherium Consertium file. Defaults to template.json.
-
- .PARAMETER etheriumConsertiumParametersFilePath
-    Optional, path to the Etherium Consertium parameters file. Defaults to parameters.json. If file is not found, will prompt for parameter values based on template.
-#>
-
-param(
- [Parameter(Mandatory=$True)]
- [string]
- $subscriptionId,
-
- [Parameter(Mandatory=$True)]
- [string]
- $resourceGroupName,
-
- [string]
- $resourceGroupLocation,
-
- [Parameter(Mandatory=$True)]
- [string]
- $deploymentName,
-
- [string]
- $etheriumConsertiumTemplateFilePath = "etheriumConsertiumTemplate.json",
-
- [string]
- $etheriumConsertiumParametersFilePath = "etheriumConsertiumParameters.json",
- 
- [string]
- $supplyChainTemplateFilePath = "supplyChainTemplate.json",
- 
- [string]
- $supplyChainParametersFilePath = "supplyChainParameters.json"
-)
-
+$subscriptionId = $conf["subscriptionId"];
+$resourceGroupName = $conf["resourceGroupName"];
+$resourceGroupLocation = $conf["resourceGroupLocation"];
+$namePrefix = $conf["namePrefix"];
+$etheriumTxRpcPassword = $conf["ethereumAccountPsswd"];
 
 <#
 .SYNOPSIS
@@ -71,7 +32,6 @@ Function RegisterRP {
 # Script body
 # Execution begins here
 #******************************************************************************
-$ErrorActionPreference = "Stop"
 
 # sign in
 Write-Host "Logging in...";
@@ -94,10 +54,6 @@ if($resourceProviders.length) {
 $resourceGroup = Get-AzureRmResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
 if(!$resourceGroup)
 {
-    Write-Host "Resource group '$resourceGroupName' does not exist. To create a new resource group, please enter a location.";
-    if(!$resourceGroupLocation) {
-        $resourceGroupLocation = Read-Host "resourceGroupLocation";
-    }
     Write-Host "Creating resource group '$resourceGroupName' in location '$resourceGroupLocation'";
     New-AzureRmResourceGroup -Name $resourceGroupName -Location $resourceGroupLocation
 }
@@ -105,39 +61,86 @@ else{
     Write-Host "Using existing resource group '$resourceGroupName'";
 }
 
+#Update the Etherium Consertium parameters file:
+$etheriumConsertiumParameters = Get-Content $etheriumConsertiumParametersFilePath -raw | ConvertFrom-Json;
+
+$etheriumConsertiumParameters.parameters.namePrefix.value = $namePrefix;
+$etheriumConsertiumParameters.parameters.adminUsername.value = $conf["adminUsername"];
+$etheriumConsertiumParameters.parameters.adminPassword.value = $conf["adminPassword"];
+$etheriumConsertiumParameters.parameters.ethereumAccountPsswd.value = $conf["ethereumAccountPsswd"];
+$etheriumConsertiumParameters.parameters.ethereumAccountPassphrase.value = $conf["ethereumAccountPassphrase"];
+$etheriumConsertiumParameters.parameters.ethereumNetworkID.value = [int]$conf["ethereumNetworkID"];
+$etheriumConsertiumParameters.parameters.numConsortiumMembers.value = [int]$conf["numConsortiumMembers"];
+$etheriumConsertiumParameters.parameters.numMiningNodesPerMember.value = [int]$conf["numMiningNodesPerMember"];
+$etheriumConsertiumParameters.parameters.mnNodeVMSize.value = $conf["mnNodeVMSize"];
+$etheriumConsertiumParameters.parameters.numTXNodes.value = [int]$conf["numTXNodes"];
+$etheriumConsertiumParameters.parameters.txNodeVMSize.value = $conf["txNodeVMSize"];
+
+$etheriumConsertiumParameters | ConvertTo-Json  | set-content $etheriumConsertiumParametersFilePath;
+
+
 # Start the Etherium Consertium deployment
 Write-Host "Starting Etherium deployment...";
-if(Test-Path $etheriumConsertiumParametersFilePath) {
-    $etheriumConsertiumOutput = New-AzureRmResourceGroupDeployment -ResourceGroupName $resourceGroupName -TemplateFile $etheriumConsertiumTemplateFilePath -TemplateParameterFile $etheriumConsertiumParametersFilePath;
-} else {
-    $etheriumConsertiumOutput = New-AzureRmResourceGroupDeployment -ResourceGroupName $resourceGroupName -TemplateFile $etheriumConsertiumTemplateFilePath;
-}
+$etheriumConsertiumOutput = New-AzureRmResourceGroupDeployment -ResourceGroupName $resourceGroupName -TemplateFile $etheriumConsertiumTemplateFilePath -TemplateParameterFile $etheriumConsertiumParametersFilePath;
 
 $ethTxVmRpcEndpoint = $etheriumConsertiumOutput.Outputs.'ethereum-rpc-endpoint'.value;
-
-#$ethVnetName = (az network vnet list -g $resourceGroupName --query "[].{name:name}" | ConvertFrom-Json).name;
 $ethVnetName = (Get-AzureRmVirtualNetwork -ResourceGroupName $resourceGroupName).name;
 
-Write-Host "ethVnetName = '$ethVnetName'";
 Write-Host "ethTxVmRpcEndpoint = '$ethTxVmRpcEndpoint'";
+Write-Host "ethVnetName = '$ethVnetName'";
 
-$etheriumConsertiumParameters = Get-Content $etheriumConsertiumParametersFilePath -raw | ConvertFrom-Json;
 $supplyChainParameters = Get-Content $supplyChainParametersFilePath -raw | ConvertFrom-Json;
 
-$namePrefix = $etheriumConsertiumParameters.parameters.namePrefix.value;
-$etheriumTxRpcPassword = $etheriumConsertiumParameters.parameters.ethereumAccountPsswd.value;
 $supplyChainParameters.parameters.deploymentPreFix.value = $namePrefix;
 $supplyChainParameters.parameters.ethVnetName.value = $ethVnetName;
+$supplyChainParameters.parameters.hostingEnvLocationName.value = $resourceGroupLocation;
+$supplyChainParameters.parameters.servicesName.value = $conf["servicesName"];
+$supplyChainParameters.parameters.oiName.value = $conf["oiName"];
+$supplyChainParameters.parameters.servicesStorageAccountName.value = $conf["servicesStorageAccountName"];
+$supplyChainParameters.parameters.gitServicesRepoURL.value = $conf["gitServicesRepoURL"];
+$supplyChainParameters.parameters.gitServicesBranch.value = $conf["gitServicesBranch"];
+$supplyChainParameters.parameters.gitOiRepoURL.value = $conf["gitOiRepoURL"];
+$supplyChainParameters.parameters.gitOiBranch.value = $conf["gitOiBranch"];
+
 $supplyChainParameters | ConvertTo-Json  | set-content $supplyChainParametersFilePath;
 
-Start-Sleep -s 180
+# Start the Supply Chain deployment
+Try
+{
+	Write-Host "Starting Supply Chain deployment...";
+	New-AzureRmResourceGroupDeployment -ResourceGroupName $resourceGroupName -TemplateFile $supplyChainTemplateFilePath -TemplateParameterFile $supplyChainParametersFilePath;
+}
+Catch
+{
+	Write-Host $_.Exception.Message
+}
+
+#Getting Services webapp and Office Integration webapp endpoints:
+$officeIntegrationWebappName = $namePrefix + $conf["oiName"];
+$servicesWebappName = $namePrefix + $conf["servicesName"];
+$servicesWebappEndpoint = 'https://'+(Get-AzureRmWebApp -Name $servicesWebappName -ResourceGroupName $resourceGroupName).DefaultHostName;
+$oiWebappEndpoint = 'https://'+(Get-AzureRmWebApp -Name $officeIntegrationWebappName -ResourceGroupName $resourceGroupName).DefaultHostName;
+Write-Host "servicesWebappEndpoint = '$servicesWebappEndpoint'";
+Write-Host "oiWebappEndpoint = '$oiWebappEndpoint'";
+
+#Getting storage account connection string:
+$storageName = $namePrefix + $conf["servicesStorageAccountName"];
+$storageKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $storageName).Value[0];
+$storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=' + $storageName + ';AccountKey=' + $storageKey + ';EndpointSuffix=core.windows.net';
+Write-Host "storageConnectionString = '$storageConnectionString'";
+
+
+#Clone Smart Contracts repo and install it:
+$supplyChainPath = pwd;
+cd ..
+git clone $conf["gitSmartContractsRepoURL"]
+cd(Get-ChildItem -Directory . | sort CreationTime | select -l 1);
+npm install
 
 #Deploy the smart contract to the Etherium TX VM:
-cd ..\ibera-smart-contracts
 $deployCommand = "node deploy ProofOfProduceQuality $ethTxVmRpcEndpoint $etheriumTxRpcPassword"
 $deployResult = Invoke-Expression "$deployCommand 2>&1" 
 Write-Host $deployResult
-cd '..\PS script\'
 
 #Get the deployment result and extract the Account and Contract addresses in case of success or the Error string in case of failure:
 $deployResultJson = ('{'+($deployResult -split '{')[-1] | ConvertFrom-Json)
@@ -151,35 +154,9 @@ if($deploymentError){
 	Write-Host 'contractAddress= ' $contractAddress;
 }
 
-# Start the Supply Chain deployment
-Try
-{
-	Write-Host "Starting Supply Chain deployment...";
-	if(Test-Path $supplyChainParametersFilePath) {
-		New-AzureRmResourceGroupDeployment -ResourceGroupName $resourceGroupName -TemplateFile $supplyChainTemplateFilePath -TemplateParameterFile $supplyChainParametersFilePath;
-	} else {
-		New-AzureRmResourceGroupDeployment -ResourceGroupName $resourceGroupName -TemplateFile $supplyChainTemplateFilePath;
-	}
-}
-Catch
-{
-	Write-Host $_.Exception.Message
-}
+#Return to the original Supplu Chain project directory
+cd $supplyChainPath
 
-#Getting Services webapp endpoint:
-$officeIntegrationWebappName = $namePrefix + $supplyChainParameters.parameters.sites_oi_name.value;
-$servicesWebappName = $namePrefix + $supplyChainParameters.parameters.sites_services_api_name.value;
-#$servicesWebappEndpoint = 'https://'+(az webapp show -g $resourceGroupName -n $servicesWebappName | ConvertFrom-Json).defaultHostName;
-$servicesWebappEndpoint = 'https://'+(Get-AzureRmWebApp -Name $servicesWebappName -ResourceGroupName $resourceGroupName).DefaultHostName;
-
-Write-Host "servicesWebappEndpoint = '$servicesWebappEndpoint'";
-
-#Getting storage account connection string:
-$storageName = $namePrefix + $supplyChainParameters.parameters.storageAccounts_service_name.value;
-#$storageKey = (az storage account keys list -g $resourceGroupName -n $storageName | ConvertFrom-Json)[0].value;
-$storageKey = (Get-AzureRmStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $storageName).Value[0];
-$storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=' + $storageName + ';AccountKey=' + $storageKey + ';EndpointSuffix=core.windows.net';
-Write-Host "storageConnectionString = '$storageConnectionString'";
 
 #Setting Services webapp environment variables:
 $servicesWebapp = Get-AzureRMWebAppSlot -ResourceGroupName $resourceGroupName -Name $servicesWebappName -Slot production
@@ -208,6 +185,7 @@ ForEach ($kvp in $oiWebappSettingList) {
     $oiWebappHash[$kvp.Name] = $kvp.Value
 }
 $oiWebappHash['IBERA_SERVICES_ENDPOINT'] = $servicesWebappEndpoint;
-$oiWebappHash['DOCUMENT_SERVICES_ENDPOINT'] = 'https://ibera-document-service.azurewebsites.net/api/Attachment';
+$oiWebappHash['DOCUMENT_SERVICES_ENDPOINT'] = $documentServicesEndPoint;
+$oiWebappHash['OUTLOOK_SERVICE_ENDPOINT'] = $oiWebappEndpoint;
 
 Set-AzureRMWebAppSlot -ResourceGroupName $resourceGroupName -Name $officeIntegrationWebappName -AppSettings $oiWebappHash -Slot production
